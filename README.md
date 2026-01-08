@@ -1,9 +1,12 @@
 
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <title>Battlecraft Studios – Document Support</title>
 
+<!-- ========================= -->
+<!--        STYLESHEET         -->
+<!-- ========================= -->
 <style>
 * { box-sizing: border-box; }
 
@@ -46,10 +49,6 @@ button {
   margin-bottom: 12px;
 }
 
-button:hover {
-  background: #ffbe33;
-}
-
 #docs {
   flex: 1;
   overflow-y: auto;
@@ -68,10 +67,6 @@ button:hover {
   content: " 🔒";
 }
 
-.doc:hover {
-  background: rgba(255,255,255,0.25);
-}
-
 /* Editor */
 #editor {
   flex: 1;
@@ -80,42 +75,26 @@ button:hover {
   flex-direction: column;
 }
 
-#doc-title {
-  font-size: 22px;
-  padding: 8px 10px;
+input, textarea {
+  font-size: 16px;
+  padding: 10px;
   border-radius: 8px;
   border: 1px solid #ccc;
-  margin-bottom: 10px;
-}
-
-#controls {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-#controls input {
-  padding: 6px 8px;
-  border-radius: 6px;
-  border: 1px solid #ccc;
-  flex: 1;
 }
 
 textarea {
   flex: 1;
-  border-radius: 14px;
-  padding: 15px;
-  font-size: 16px;
+  margin-top: 10px;
   resize: none;
-  border: none;
-  outline: none;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
 }
 </style>
 </head>
 
 <body>
 
+<!-- ========================= -->
+<!--           HTML            -->
+<!-- ========================= -->
 <div id="sidebar">
   <div id="brand">
     Battlecraft Studios<br>
@@ -127,96 +106,135 @@ textarea {
 </div>
 
 <div id="editor">
-  <input id="doc-title" placeholder="Document Title" />
-  <div id="controls">
-    <input id="password" type="password" placeholder="Optional Password" />
-  </div>
-  <textarea id="content" placeholder="Write your document here..."></textarea>
+  <input id="doc-title" placeholder="Document Title" disabled>
+  <input id="doc-password" type="password" placeholder="Optional Password" disabled>
+  <textarea id="content" placeholder="Write your document here..." disabled></textarea>
 </div>
 
+<!-- ========================= -->
+<!--         JAVASCRIPT        -->
+<!-- ========================= -->
 <script>
+/* ========= GLOBAL STATE ========= */
 let db;
-let currentDoc = null;
+let currentDocId = null;
 
-const request = indexedDB.open("battlecraftDocsPro", 1);
+/* ========= DATABASE SETUP ========= */
+const request = indexedDB.open("battlecraftDocsStable", 1);
 
-request.onupgradeneeded = e => {
+request.onupgradeneeded = (e) => {
   db = e.target.result;
-  db.createObjectStore("docs", { keyPath: "id", autoIncrement: true });
+  db.createObjectStore("docs", {
+    keyPath: "id",
+    autoIncrement: true
+  });
 };
 
-request.onsuccess = e => {
+request.onsuccess = (e) => {
   db = e.target.result;
   loadDocs();
 };
 
+request.onerror = () => {
+  alert("Failed to open database.");
+};
+
+/* ========= UI ELEMENTS ========= */
+const titleInput = document.getElementById("doc-title");
+const contentInput = document.getElementById("content");
+const passwordInput = document.getElementById("doc-password");
+const docsList = document.getElementById("docs");
+
+function setEditorEnabled(enabled) {
+  titleInput.disabled = !enabled;
+  contentInput.disabled = !enabled;
+  passwordInput.disabled = !enabled;
+}
+
+/* ========= LOAD DOCUMENT LIST ========= */
 function loadDocs() {
   const tx = db.transaction("docs", "readonly");
   const store = tx.objectStore("docs");
-  const req = store.getAll();
 
-  req.onsuccess = () => {
-    const list = document.getElementById("docs");
-    list.innerHTML = "";
-    req.result.forEach(doc => {
+  store.getAll().onsuccess = (e) => {
+    docsList.innerHTML = "";
+
+    e.target.result.forEach(doc => {
       const div = document.createElement("div");
       div.className = "doc" + (doc.password ? " locked" : "");
-      div.textContent = doc.title || "Untitled Document";
-      div.onclick = () => openDoc(doc);
-      list.appendChild(div);
+      div.textContent = doc.title || "Untitled";
+      div.onclick = () => openDoc(doc.id);
+      docsList.appendChild(div);
     });
   };
 }
 
+/* ========= CREATE DOCUMENT ========= */
 function newDoc() {
   const tx = db.transaction("docs", "readwrite");
   const store = tx.objectStore("docs");
-  const doc = {
+
+  store.add({
     title: "New Document",
     content: "",
     password: ""
-  };
-
-  const req = store.add(doc);
-  req.onsuccess = e => {
-    doc.id = e.target.result;
-    openDoc(doc);
-    loadDocs();
+  }).onsuccess = (e) => {
+    openDoc(e.target.result);
   };
 }
 
-function openDoc(doc) {
-  if (doc.password) {
-    const input = prompt("Enter password for this document:");
-    if (input !== doc.password) {
-      alert("Incorrect password.");
-      return;
+/* ========= OPEN DOCUMENT ========= */
+function openDoc(id) {
+  const tx = db.transaction("docs", "readonly");
+  const store = tx.objectStore("docs");
+
+  store.get(id).onsuccess = (e) => {
+    const doc = e.target.result;
+    if (!doc) return;
+
+    if (doc.password) {
+      const input = prompt("Enter password for this document:");
+      if (input !== doc.password) {
+        alert("Incorrect password.");
+        return;
+      }
     }
-  }
 
-  currentDoc = doc;
-  document.getElementById("doc-title").value = doc.title;
-  document.getElementById("content").value = doc.content;
-  document.getElementById("password").value = doc.password || "";
+    currentDocId = id;
+    titleInput.value = doc.title;
+    contentInput.value = doc.content;
+    passwordInput.value = doc.password || "";
+
+    setEditorEnabled(true);
+  };
 }
 
+/* ========= SAVE DOCUMENT ========= */
 function saveDoc() {
-  if (!currentDoc) return;
-
-  currentDoc.title = document.getElementById("doc-title").value || "Untitled Document";
-  currentDoc.content = document.getElementById("content").value;
-  currentDoc.password = document.getElementById("password").value;
+  if (!currentDocId) return;
 
   const tx = db.transaction("docs", "readwrite");
   const store = tx.objectStore("docs");
-  store.put(currentDoc);
 
-  loadDocs();
+  store.get(currentDocId).onsuccess = (e) => {
+    const doc = e.target.result;
+    if (!doc) return;
+
+    doc.title = titleInput.value || "Untitled";
+    doc.content = contentInput.value;
+    doc.password = passwordInput.value || "";
+
+    store.put(doc).onsuccess = loadDocs;
+  };
 }
 
-document.getElementById("doc-title").addEventListener("input", saveDoc);
-document.getElementById("content").addEventListener("input", saveDoc);
-document.getElementById("password").addEventListener("input", saveDoc);
+/* ========= AUTO SAVE ========= */
+titleInput.addEventListener("input", saveDoc);
+contentInput.addEventListener("input", saveDoc);
+passwordInput.addEventListener("input", saveDoc);
+
+/* ========= INIT ========= */
+setEditorEnabled(false);
 </script>
 
 </body>
